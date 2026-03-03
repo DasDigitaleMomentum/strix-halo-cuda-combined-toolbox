@@ -2,7 +2,11 @@
 
 A standalone, distrobox-based container that runs [llama.cpp](https://github.com/ggerganov/llama.cpp) with both **AMD ROCm/HIP** and **NVIDIA CUDA** backends compiled into a single build. Both GPUs are visible simultaneously, enabling dual-GPU inference via `--tensor-split` on systems with an AMD Strix Halo APU and a discrete NVIDIA GPU.
 
-Based on [amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) -- this fork extracts and enhances the ROCm 7.2 container with NVIDIA CUDA 13.1 support for dual-GPU inference.
+### Background
+
+I forked [kyuz0's amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) to have a clean, isolated place to experiment with combined llama.cpp backends. The reason: I bought an [NVMe-to-OCuLink adapter](https://www.amazon.de/GINTOOYUN-PCI-E4-0-Adapterkabel-weibliches-Hostkabel/dp/B0F8N34H1R) and a [Minisforum DEG1 graphics dock](https://minisforumpc.eu/products/minisforum-deg1-grafik-docking-station) to hook up my old RTX 3060 alongside the Strix Halo's integrated Radeon 8060S. The idea was simple -- throw both GPUs at inference and see what happens.
+
+Getting there was anything but simple. ROCm and CUDA have completely different toolchain requirements, and making them coexist in a single llama.cpp build turned into a rabbit hole of glibc version clashes, GCC incompatibilities with nvcc, HIP/CUDA symbol collisions, and runtime detection issues where one stack would shadow the other. Distrobox containers turned out to be the perfect sandbox for this -- you can break things without touching your host, iterate quickly, and keep the whole mess reproducible. This repo is the result of that process: a single container where both backends load cleanly as dynamic plugins and both GPUs show up side by side.
 
 ## How it works
 
@@ -118,4 +122,4 @@ Edit the Dockerfile and change these two cmake variables:
 
 ## License
 
-llama.cpp is licensed under MIT. This container build configuration is provided as-is.
+MIT -- see [LICENSE](LICENSE).
