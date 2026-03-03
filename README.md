@@ -1,16 +1,20 @@
 # Strix Halo Dual-GPU ROCm + CUDA llama.cpp Toolbox
 
-A standalone, distrobox-based container that runs [llama.cpp](https://github.com/ggerganov/llama.cpp) with both **AMD ROCm/HIP** and **NVIDIA CUDA** backends compiled into a single build. Both GPUs are visible simultaneously, enabling dual-GPU inference via `--tensor-split` on systems with an AMD Strix Halo APU and a discrete NVIDIA GPU.
+A standalone, distrobox-based container that runs [llama.cpp](https://github.com/ggerganov/llama.cpp) with both AMD ROCm/HIP and NVIDIA CUDA backends compiled into a single build. Which is supported by llama.cpp since a few month.
+Both GPUs are visible simultaneously, enabling dual-GPU inference via `--tensor-split` on systems with an AMD Strix Halo APU and a discrete NVIDIA GPU.
 
 ### Background
 
-I forked [kyuz0's amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) to have a clean, isolated place to experiment with combined llama.cpp backends. The reason: I bought an [NVMe-to-OCuLink adapter](https://www.amazon.de/GINTOOYUN-PCI-E4-0-Adapterkabel-weibliches-Hostkabel/dp/B0F8N34H1R) and a [Minisforum DEG1 graphics dock](https://minisforumpc.eu/products/minisforum-deg1-grafik-docking-station) to hook up my old RTX 3060 alongside the Strix Halo's integrated Radeon 8060S. The idea was simple -- throw both GPUs at inference and see what happens.
+I forked [kyuz0's amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) to have a clean, isolated place to experiment with combined llama.cpp backends. The reason: I bought an [NVMe-to-OCuLink adapter](https://www.amazon.de/GINTOOYUN-PCI-E4-0-Adapterkabel-weibliches-Hostkabel/dp/B0F8N34H1R) and a [Minisforum DEG1 graphics dock](https://minisforumpc.eu/products/minisforum-deg1-grafik-docking-station) to hook up my old RTX 3060 alongside the Strix Halo's integrated Radeon 8060S. My idea was throw both GPUs at inference and see what happens.
 
-Getting there was anything but simple. ROCm and CUDA have completely different toolchain requirements, and making them coexist in a single llama.cpp build turned into a rabbit hole of glibc version clashes, GCC incompatibilities with nvcc, HIP/CUDA symbol collisions, and runtime detection issues where one stack would shadow the other. Distrobox containers turned out to be the perfect sandbox for this -- you can break things without touching your host, iterate quickly, and keep the whole mess reproducible. This repo is the result of that process: a single container where both backends load cleanly as dynamic plugins and both GPUs show up side by side.
+Getting there wasnt simple. ROCm and CUDA have different toolchain requirements, and making them coexist in a single llama.cpp build turned into small rabbit hole of glibc version clashes, GCC incompatibilities with nvcc, HIP/CUDA symbol collisions, and runtime detection issues where one stack would shadow the other. 
+This repo is the result of that process.
 
 ## How it works
 
 llama.cpp is built with `GGML_BACKEND_DL=ON`, which compiles each backend (HIP, CUDA, CPU variants) as a separate `.so` plugin loaded at runtime. This avoids symbol clashes between the ROCm and CUDA toolchains that would occur with static linking. The result is a single `llama-cli` binary that can address both `ROCm0` and `CUDA0` devices.
+
+Find the adjusted and partially generated README below:
 
 ## Prerequisites
 
