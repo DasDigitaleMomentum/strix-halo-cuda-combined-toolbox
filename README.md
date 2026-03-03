@@ -12,7 +12,7 @@ This repo is the result of that process.
 
 ## How it works
 
-llama.cpp is built with `GGML_BACKEND_DL=ON`, which compiles each backend (HIP, CUDA, CPU variants) as a separate `.so` plugin loaded at runtime. This avoids symbol clashes between the ROCm and CUDA toolchains that would occur with static linking. The result is a single `llama-cli` binary that can address both `ROCm0` and `CUDA0` devices.
+llama.cpp is built with `GGML_BACKEND_DL=ON`, which compiles each backend (HIP, CUDA, CPU variants) as a separate `.so` plugin loaded at runtime. This avoids symbol clashes between the ROCm and CUDA toolchains that would occur with static linking. The result is a single `llama-cli` or `llama-server` or `llama-bench` binary that can address both `ROCm0` and `CUDA0` devices.
 
 Find the adjusted and partially generated README below:
 
