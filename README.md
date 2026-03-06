@@ -107,16 +107,14 @@ All benchmarks below were run with `llama-bench -mmp 0 -fa 1` (mmap disabled, fl
 
 ### Qwen3.5-27B dense (Q4_0, 14.63 GiB)
 
-Direct `--tensor-split` across CUDA0 + ROCm0. No RPC needed — cross-backend layer split works natively.
+Direct `--tensor-split` across CUDA0 + ROCm0. Cross-backend layer split works natively.
 
-| Config | pp512 (t/s) | pp2048 (t/s) | tg128 (t/s) | PP:512 Δ | PP:2048 Δ | TG Δ |
-|---|---|---|---|---|---|---|
-| **Baseline (ROCm0 only)** | 355.65 ± 2.96 | 214.65 ± 16.31 | 11.92 ± 0.00 | — | — | — |
-| `-ts 1/1` (50/50) | 282.30 ± 5.70 | 455.72 ± 133.12 | 13.59 ± 0.04 | -20.6% | +112.3% | +14.0% |
-| `-ts 2/1` (67% CUDA / 33% ROCm) | 445.07 ± 5.36 | **616.59 ± 0.83** | 14.37 ± 0.01 | +25.1% | **+187.2%** | +20.6% |
-| **`-ts 3/1` (75% CUDA / 25% ROCm)** | **459.67 ± 5.43** | 582.43 ± 0.52 | **14.77 ± 0.01** | **+29.3%** | +171.3% | **+23.9%** |
+| Config | pp512 (t/s) | pp2048 (t/s) | pp4096 (t/s) | tg128 (t/s) | PP:512 Δ | PP:2048 Δ | PP:4096 Δ | TG Δ |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline (ROCm0 only)** | 349.20 ± 3.65 | 347.67 ± 1.45 | 334.04 ± 2.13 | 11.88 ± 0.01 | — | — | — | — |
+| **`-ts 3/1` (75% CUDA / 25% ROCm)** | **459.85 ± 5.93** | **580.91 ± 1.56** | **603.84 ± 0.10** | **14.73 ± 0.03** | **+31.7%** | **+67.1%** | **+80.8%** | **+24.0%** |
 
-Best split depends on workload: **`-ts 3/1` for PP:512 and TG**, **`-ts 2/1` for PP:2048**. The RTX 3060 is the primary compute device in all winning configs — its GDDR6 bandwidth (360 GB/s) far exceeds the Radeon's shared DDR5 (~100 GB/s effective for GPU).
+The RTX 3060 is the primary compute device (75% share) — its GDDR6 bandwidth (360 GB/s) far exceeds the Radeon's shared DDR5 (~100 GB/s effective for GPU). PP improvement scales dramatically with context length.
 
 ```bash
 # Recommended for Q4_0 (general use)
@@ -127,13 +125,10 @@ llama-server -m model-Q4_0.gguf -mmp 0 -fa 1 -ts 3/1
 
 Larger quant — the RTX 3060 can only hold ~40% of the model, so the split ratio is inverted.
 
-| Config | pp512 (t/s) | pp2048 (t/s) | tg128 (t/s) | PP:512 Δ | PP:2048 Δ | TG Δ |
-|---|---|---|---|---|---|---|
-| **Baseline (ROCm0 only)** | 320.35 ± 2.35 | 317.38 ± 1.43 | 7.29 ± 0.01 | — | — | — |
-| `-ts 1/4` (20% CUDA / 80% ROCm) | 346.12 ± 1.51 | 383.10 ± 2.06 | 7.68 ± 0.01 | +8.0% | +20.7% | +5.3% |
-| `-ts 1/2` (33% CUDA / 67% ROCm) | 367.05 ± 2.30 | 446.58 ± 2.44 | 8.02 ± 0.01 | +14.6% | +40.7% | +10.0% |
-| **`-ts 1/1.5` (~40% CUDA / 60% ROCm)** | **376.91 ± 1.87** | **483.86 ± 2.19** | **8.19 ± 0.01** | **+17.7%** | **+52.5%** | **+12.3%** |
-| `-ts 1/1` (50/50) | OOM | OOM | OOM | — | — | — |
+| Config | pp512 (t/s) | pp2048 (t/s) | pp4096 (t/s) | tg128 (t/s) | PP:512 Δ | PP:2048 Δ | PP:4096 Δ | TG Δ |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline (ROCm0 only)** | 320.35 ± 1.40 | 317.75 ± 1.25 | 308.83 ± 1.03 | 7.30 ± 0.01 | — | — | — | — |
+| **`-ts 1/1.5` (~40% CUDA / 60% ROCm)** | **379.02 ± 1.41** | **484.08 ± 1.25** | **497.91 ± 0.90** | **8.19 ± 0.00** | **+18.3%** | **+52.4%** | **+61.2%** | **+12.2%** |
 
 **`-ts 1/1.5` is the sweet spot** — fills ~10.6 GiB of the RTX 3060's 12 GiB. Going 50/50 exceeds VRAM (~13.3 GiB needed).
 
@@ -148,9 +143,9 @@ Both `-sm row` (weight matrix split) and `-sm layer` (default, sequential layer 
 
 | Model | Ratio | Mode | PP:512 | PP:2048 | TG:128 |
 |---|---|---|---|---|---|
-| Q4_0 | 3:1 | layer | 459.67 | 582.43 | **14.77** |
+| Q4_0 | 3:1 | layer | 459.85 | 580.91 | **14.73** |
 | Q4_0 | 3:1 | row | 459.52 | 581.72 | 14.41 |
-| Q8_0 | 1:1.5 | layer | 376.91 | 483.86 | **8.19** |
+| Q8_0 | 1:1.5 | layer | 379.02 | 484.08 | **8.19** |
 | Q8_0 | 1:1.5 | row | 376.81 | **484.99** | 8.12 |
 
 Layer-split has a slight TG advantage (0.9-2.4%) due to lower per-token synchronization overhead. Row-split is marginally better at long PP. In practice, either works — **layer-split is the safer default**.
