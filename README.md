@@ -101,20 +101,83 @@ gguf-vram-estimator.py model.gguf
 
 ## Benchmark results
 
-Qwen3-30B-A3B Q4_K_M (MoE, sparse model):
+All benchmarks below were run with `llama-bench -mmp 0 -fa 1` (mmap disabled, flash attention enabled) using build `2afcdb97` (8185). Hardware: Radeon 8060S (ROCm0, 126.72 GiB UMA) + RTX 3060 (CUDA0, 12 GiB GDDR6).
 
-| Config | pp512 (t/s) | tg128 (t/s) |
-|---|---|---|
-| ROCm0 only | 1183 | 73.2 |
-| 90% ROCm0 / 10% CUDA0 | 1165 | 73.4 |
-| 70% ROCm0 / 30% CUDA0 | 1184 | 73.4 |
+> **Important: device ordering.** llama.cpp enumerates CUDA0 as Device 0 and ROCm0 as Device 1. In `-ts X/Y`, X is the CUDA0 (RTX 3060) share and Y is the ROCm0 (Radeon) share. This is the opposite of what you might expect if you think of the Radeon as the "primary" GPU.
 
-For this sparse MoE model, tensor-split shows no speedup because the AMD iGPU has ample VRAM and the model's sparse access pattern doesn't benefit from offloading. Dual-GPU tensor-split is primarily useful for **dense models** that exceed single-GPU memory or for running **parallel inference** workloads.
+### Qwen3.5-27B dense (Q4_0, 14.63 GiB)
+
+Direct `--tensor-split` across CUDA0 + ROCm0. No RPC needed — cross-backend layer split works natively.
+
+| Config | pp512 (t/s) | pp2048 (t/s) | tg128 (t/s) | PP:512 Δ | PP:2048 Δ | TG Δ |
+|---|---|---|---|---|---|---|
+| **Baseline (ROCm0 only)** | 355.65 ± 2.96 | 214.65 ± 16.31 | 11.92 ± 0.00 | — | — | — |
+| `-ts 1/1` (50/50) | 282.30 ± 5.70 | 455.72 ± 133.12 | 13.59 ± 0.04 | -20.6% | +112.3% | +14.0% |
+| `-ts 2/1` (67% CUDA / 33% ROCm) | 445.07 ± 5.36 | **616.59 ± 0.83** | 14.37 ± 0.01 | +25.1% | **+187.2%** | +20.6% |
+| **`-ts 3/1` (75% CUDA / 25% ROCm)** | **459.67 ± 5.43** | 582.43 ± 0.52 | **14.77 ± 0.01** | **+29.3%** | +171.3% | **+23.9%** |
+
+Best split depends on workload: **`-ts 3/1` for PP:512 and TG**, **`-ts 2/1` for PP:2048**. The RTX 3060 is the primary compute device in all winning configs — its GDDR6 bandwidth (360 GB/s) far exceeds the Radeon's shared DDR5 (~100 GB/s effective for GPU).
+
+```bash
+# Recommended for Q4_0 (general use)
+llama-server -m model-Q4_0.gguf -mmp 0 -fa 1 -ts 3/1
+```
+
+### Qwen3.5-27B dense (Q8_0, 26.62 GiB)
+
+Larger quant — the RTX 3060 can only hold ~40% of the model, so the split ratio is inverted.
+
+| Config | pp512 (t/s) | pp2048 (t/s) | tg128 (t/s) | PP:512 Δ | PP:2048 Δ | TG Δ |
+|---|---|---|---|---|---|---|
+| **Baseline (ROCm0 only)** | 320.35 ± 2.35 | 317.38 ± 1.43 | 7.29 ± 0.01 | — | — | — |
+| `-ts 1/4` (20% CUDA / 80% ROCm) | 346.12 ± 1.51 | 383.10 ± 2.06 | 7.68 ± 0.01 | +8.0% | +20.7% | +5.3% |
+| `-ts 1/2` (33% CUDA / 67% ROCm) | 367.05 ± 2.30 | 446.58 ± 2.44 | 8.02 ± 0.01 | +14.6% | +40.7% | +10.0% |
+| **`-ts 1/1.5` (~40% CUDA / 60% ROCm)** | **376.91 ± 1.87** | **483.86 ± 2.19** | **8.19 ± 0.01** | **+17.7%** | **+52.5%** | **+12.3%** |
+| `-ts 1/1` (50/50) | OOM | OOM | OOM | — | — | — |
+
+**`-ts 1/1.5` is the sweet spot** — fills ~10.6 GiB of the RTX 3060's 12 GiB. Going 50/50 exceeds VRAM (~13.3 GiB needed).
+
+```bash
+# Recommended for Q8_0
+llama-server -m model-Q8_0.gguf -mmp 0 -fa 1 -ts 1/1.5
+```
+
+### Row-split vs layer-split
+
+Both `-sm row` (weight matrix split) and `-sm layer` (default, sequential layer split) work cross-backend. Performance is nearly identical:
+
+| Model | Ratio | Mode | PP:512 | PP:2048 | TG:128 |
+|---|---|---|---|---|---|
+| Q4_0 | 3:1 | layer | 459.67 | 582.43 | **14.77** |
+| Q4_0 | 3:1 | row | 459.52 | 581.72 | 14.41 |
+| Q8_0 | 1:1.5 | layer | 376.91 | 483.86 | **8.19** |
+| Q8_0 | 1:1.5 | row | 376.81 | **484.99** | 8.12 |
+
+Layer-split has a slight TG advantage (0.9-2.4%) due to lower per-token synchronization overhead. Row-split is marginally better at long PP. In practice, either works — **layer-split is the safer default**.
+
+### Qwen3.5-122B-A10B MXFP4 MoE (63.57 GiB, 48 layers, 256 experts/layer)
+
+Direct `--tensor-split` works for MoE models too. The 122B MoE model is ~63.6 GiB, so the RTX 3060 can only hold a small fraction — but even that fraction helps significantly at longer contexts.
+
+| Config | pp512 (t/s) | pp2048 (t/s) | pp4096 (t/s) | tg128 (t/s) | PP:512 Δ | PP:2048 Δ | PP:4096 Δ | TG Δ |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline (ROCm0 only)** | 344.54 ± 2.79 | 340.48 ± 1.98 | 325.67 ± 3.55 | 19.31 ± 0.01 | — | — | — | — |
+| `-ts 1/6` (~14% CUDA) | 357.08 ± 1.11 | 385.98 ± 3.49 | 378.31 ± 3.95 | 19.57 ± 0.01 | +3.6% | +13.4% | +16.2% | +1.3% |
+| **`-ts 1/5.2` (~16% CUDA)** | **360.57 ± 1.12** | **393.49 ± 2.34** | **386.52 ± 2.75** | **19.62 ± 0.01** | **+4.7%** | **+15.6%** | **+18.7%** | **+1.6%** |
+| `-ts 1/4.5` (~18% CUDA) | OOM | OOM | OOM | OOM | — | — | — | — |
+
+**`-ts 1/5.2` is the sweet spot** — places ~10.2 GiB on the RTX 3060 (just under the 12 GiB limit). Going higher causes OOM because MoE layers are large (~1.32 GiB each with 256 experts). PP improvement scales with context length: +4.7% at 512 tokens, +18.7% at 4096 tokens.
+
+```bash
+# Recommended for MoE 122B
+llama-server -m model-MXFP4.gguf -mmp 0 -fa 1 -ts 1/5.2
+```
 
 ## Known limitations
 
-- **Cross-backend `-ot` (override-tensor) is not supported.** Placing individual tensors on a different backend (e.g., `-ot ".*ffn_gate_exps.*=CUDA0"`) causes an abort -- the backend cannot run operations on tensors allocated by another backend. Only `--tensor-split` (layer-level split) works across backends.
-- **MoE models see no speedup from tensor-split.** Sparse expert access means only a fraction of parameters are active per token, so splitting across GPUs adds communication overhead without reducing computation.
+- **Cross-backend `-ot` (override-tensor) is unreliable.** While placing a single layer on the other backend can work (e.g., `-ot "blk.0=CUDA0"`), scaling beyond 1-2 layers fails. The reason: when a backend can't handle certain tensor types or operations (like `f32` norm weights on ROCm), those tensors get silently redirected to the other backend as a fallback. With more layers, the accumulated overflow exhausts the smaller GPU's VRAM (e.g., 529 redirected tensors → OOM on the 12 GiB RTX 3060). Only `--tensor-split` (layer-level split) is reliable across backends.
+- **Device ordering is not configurable.** CUDA0 is always Device 0, ROCm0 is Device 1. The `-ts X/Y` ratio assigns X to CUDA0 and Y to ROCm0 — which is counterintuitive when the Radeon has 10x more VRAM. Models that exceed the RTX 3060's 12 GiB share will OOM if the split ratio isn't adjusted.
+- **PP:65536+ context is not possible for the 122B MoE model.** The model (63.6 GiB) plus KV cache for 64K context (~8 GiB) exceeds available UMA after OS/desktop overhead. PP:32768 works but is near the limit.
 - **Build targets are hardware-specific.** The defaults target gfx1151 (AMD) and compute 86 (NVIDIA). Other GPUs require changing the Dockerfile build args.
 
 ## Adapting for other hardware
