@@ -13,10 +13,12 @@ function usage() {
   echo "Usage: $0 <command>"
   echo ""
   echo "Commands:"
-  echo "  build    Build (or rebuild) the container image"
-  echo "  create   Create the distrobox (image must exist)"
-  echo "  rm       Remove the distrobox"
-  echo "  all      Build image + create distrobox"
+  echo "  build         Build the container image (uses cache)"
+  echo "  rebuild       Re-clone llama.cpp, reuse cached OS layers"
+  echo "  full-rebuild  Full rebuild from scratch (no cache at all)"
+  echo "  create        Create the distrobox (image must exist)"
+  echo "  rm            Remove the distrobox"
+  echo "  all           Build image + create distrobox"
   echo ""
   echo "Image:     $IMAGE_NAME"
   echo "Distrobox: $TOOLBOX_NAME"
@@ -40,8 +42,20 @@ function distrobox_exists() {
 
 function cmd_build() {
   echo "Building image: $IMAGE_NAME"
-  podman build -t "$IMAGE_NAME" "$SCRIPT_DIR"
+  podman build --build-arg "CACHEBUST=1" -t "$IMAGE_NAME" "$SCRIPT_DIR"
   echo "Build complete: $IMAGE_NAME"
+}
+
+function cmd_rebuild() {
+  echo "Rebuilding image (fresh llama.cpp clone): $IMAGE_NAME"
+  podman build --build-arg "CACHEBUST=$(date +%s)" -t "$IMAGE_NAME" "$SCRIPT_DIR"
+  echo "Rebuild complete: $IMAGE_NAME"
+}
+
+function cmd_full_rebuild() {
+  echo "Full rebuild (no cache at all): $IMAGE_NAME"
+  podman build --no-cache -t "$IMAGE_NAME" "$SCRIPT_DIR"
+  echo "Full rebuild complete: $IMAGE_NAME"
 }
 
 function cmd_create() {
@@ -77,6 +91,12 @@ check_deps
 case "${1:-}" in
   build)
     cmd_build
+    ;;
+  rebuild)
+    cmd_rebuild
+    ;;
+  full-rebuild)
+    cmd_full_rebuild
     ;;
   create)
     cmd_create

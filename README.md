@@ -47,10 +47,14 @@ llama-cli --list-devices
 
 | Command | Description |
 |---|---|
-| `./refresh-toolbox.sh build` | Build (or rebuild) the container image |
+| `./refresh-toolbox.sh build` | Build the container image (uses cache — fast, but won't pull new llama.cpp) |
+| `./refresh-toolbox.sh rebuild` | Re-clone llama.cpp and rebuild, reuse cached OS/dependency layers |
+| `./refresh-toolbox.sh full-rebuild` | Full rebuild from scratch — no cache at all (slowest, use when changing OS deps) |
 | `./refresh-toolbox.sh create` | Create the distrobox from the local image |
 | `./refresh-toolbox.sh rm` | Remove the distrobox |
 | `./refresh-toolbox.sh all` | Build image + create distrobox |
+
+> **Updating llama.cpp:** `build` reuses Podman's build cache, so it won't pick up new llama.cpp commits. Use `rebuild` to pull the latest llama.cpp while keeping cached OS layers, or `full-rebuild` to start completely from scratch.
 
 The distrobox is created with these flags for GPU passthrough:
 
