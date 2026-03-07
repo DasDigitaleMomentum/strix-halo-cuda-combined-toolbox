@@ -52,7 +52,7 @@ WORKDIR /opt/llama.cpp
 ARG REPO=https://github.com/ggerganov/llama.cpp.git
 ARG BRANCH=master
 ARG CACHEBUST=1
-RUN git clone -b ${BRANCH} --single-branch --recursive ${REPO} .
+RUN echo "cache-bust: ${CACHEBUST}" && git clone -b ${BRANCH} --single-branch --recursive ${REPO} .
 
 # build — dual backend: ROCm/HIP + CUDA
 RUN git clean -xdf \

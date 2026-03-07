@@ -14,11 +14,11 @@ function usage() {
   echo ""
   echo "Commands:"
   echo "  build         Build the container image (uses cache)"
-  echo "  rebuild       Re-clone llama.cpp, reuse cached OS layers"
-  echo "  full-rebuild  Full rebuild from scratch (no cache at all)"
+  echo "  rebuild       Re-clone llama.cpp, reuse cached OS layers, recreate distrobox"
+  echo "  full-rebuild  Full rebuild from scratch (no cache), recreate distrobox"
   echo "  create        Create the distrobox (image must exist)"
   echo "  rm            Remove the distrobox"
-  echo "  all           Build image + create distrobox"
+  echo "  all           Build image (cached) + create distrobox"
   echo ""
   echo "Image:     $IMAGE_NAME"
   echo "Distrobox: $TOOLBOX_NAME"
@@ -94,9 +94,11 @@ case "${1:-}" in
     ;;
   rebuild)
     cmd_rebuild
+    cmd_create
     ;;
   full-rebuild)
     cmd_full_rebuild
+    cmd_create
     ;;
   create)
     cmd_create
