@@ -145,10 +145,23 @@ ENV CUDA_PATH=/usr/local/cuda \
 COPY gguf-vram-estimator.py /usr/local/bin/gguf-vram-estimator.py
 RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
 
+# ghostty shell integration (sourced from host .bashrc via GHOSTTY_RESOURCES_DIR)
+RUN mkdir -p /usr/share/ghostty/shell-integration/bash
+COPY shell-integration/bash/ /usr/share/ghostty/shell-integration/bash/
+
 # profile
 RUN printf '%s\n' \
   > /etc/profile.d/rocm.sh && chmod +x /etc/profile.d/rocm.sh \
   && echo 'source /etc/profile.d/rocm.sh' >> /etc/bashrc
+
+# redirect ghostty integration to container-local copy when running in ghostty
+RUN printf '%s\n' \
+  '# If running inside Ghostty, point GHOSTTY_RESOURCES_DIR to the container-local copy' \
+  '# so that the host .bashrc "source $GHOSTTY_RESOURCES_DIR/..." line finds the files.' \
+  'if [ -n "$GHOSTTY_RESOURCES_DIR" ]; then' \
+  '  export GHOSTTY_RESOURCES_DIR=/usr/share/ghostty' \
+  'fi' \
+  > /etc/profile.d/ghostty.sh && chmod +x /etc/profile.d/ghostty.sh
 
 # shell
 CMD ["/bin/bash"]

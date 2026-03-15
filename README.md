@@ -186,6 +186,12 @@ Edit the Dockerfile and change these two cmake variables:
 - `AMDGPU_TARGETS=gfx1151` -- your AMD GPU's GFX target (e.g., `gfx1100` for RX 7900 XTX, `gfx1103` for 780M)
 - `CMAKE_CUDA_ARCHITECTURES=86` -- your NVIDIA GPU's compute capability (e.g., `89` for RTX 4090, `90` for H100, `120` for RTX 5090)
 
+## Ghostty shell integration
+
+The container includes [Ghostty's](https://ghostty.org/) bash shell integration files (`shell-integration/bash/`). When you enter the distrobox from a Ghostty terminal, `GHOSTTY_RESOURCES_DIR` is automatically redirected to the container-local copy so that prompt marks, title updates, and other shell features work without the host's Ghostty installation being visible inside the container. Non-Ghostty terminals are unaffected.
+
 ## License
 
 MIT -- see [LICENSE](LICENSE).
+
+The Ghostty shell integration files in `shell-integration/` are from the [Ghostty project](https://github.com/ghostty-org/ghostty) and licensed under **GPLv3**.
