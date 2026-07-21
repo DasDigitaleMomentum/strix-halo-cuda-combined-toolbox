@@ -1,20 +1,7 @@
-# build stage — Fedora 42 to avoid glibc 2.41 + cudafe++ noexcept clash
+# build stage — Fedora 42 to avoid glibc 2.41 + cudafe++ noexcept clash (e.g. rsqrt)
 FROM registry.fedoraproject.org/fedora:42 AS builder
 
-# rocm 7.2 repo
-RUN <<'EOF'
-tee /etc/yum.repos.d/rocm.repo <<REPO
-[ROCm-7.2]
-name=ROCm7.2
-baseurl=https://repo.radeon.com/rocm/rhel10/7.2/main
-enabled=1
-priority=50
-gpgcheck=1
-gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
-REPO
-EOF
-
-# nvidia cuda repo (using fedora42 repo — works on 43)
+# nvidia cuda repo (fedora42)
 RUN <<'EOF'
 tee /etc/yum.repos.d/cuda-fedora42.repo <<REPO
 [cuda-fedora42-x86_64]
@@ -26,16 +13,29 @@ gpgkey=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64/
 REPO
 EOF
 
-# deps: ROCm + CUDA build tools
+# rocm 7.2.4 repo (stable, RPM-based — replaces nightly tarballs)
+RUN <<'EOF'
+tee /etc/yum.repos.d/rocm.repo <<REPO
+[ROCm-7.2.4]
+name=ROCm7.2.4
+baseurl=https://repo.radeon.com/rocm/rhel9/7.2.4/main
+enabled=1
+priority=50
+gpgcheck=1
+gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
+REPO
+EOF
+
+# deps: build tools + CUDA + ROCm
 RUN dnf -y --nodocs --setopt=install_weak_deps=False \
   --exclude='*sdk*' --exclude='*samples*' --exclude='*-doc*' --exclude='*-docs*' \
   install \
   make gcc gcc-c++ gcc14-c++ cmake lld clang clang-devel compiler-rt libcurl-devel ninja-build \
+  rdma-core-devel \
   rocm-llvm rocm-device-libs hip-runtime-amd hip-devel \
   rocblas rocblas-devel hipblas hipblas-devel rocm-cmake libomp-devel libomp \
-  rocminfo radeontop \
   cuda-nvcc-13-1 cuda-cudart-devel-13-1 cuda-driver-devel-13-1 libcublas-devel-13-1 \
-  git-core vim sudo rsync \
+  git-core vim sudo rsync patch rocminfo radeontop \
   && dnf clean all && rm -rf /var/cache/dnf/*
 
 # rocm + cuda env
@@ -44,8 +44,8 @@ ENV ROCM_PATH=/opt/rocm \
   HIP_CLANG_PATH=/opt/rocm/llvm/bin \
   HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode \
   CUDA_PATH=/usr/local/cuda \
-  PATH=/usr/local/cuda/bin:/opt/rocm/bin:/opt/rocm/llvm/bin:$PATH \
-  LD_LIBRARY_PATH=/usr/local/cuda/lib64
+  PATH=/usr/local/cuda/bin:/opt/rocm/bin:/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  LD_LIBRARY_PATH=/usr/local/cuda/lib64:/opt/rocm/lib:/opt/rocm/lib64:/opt/rocm/llvm/lib
 
 # llama.cpp
 WORKDIR /opt/llama.cpp
@@ -54,17 +54,20 @@ ARG BRANCH=master
 ARG CACHEBUST=1
 RUN echo "cache-bust: ${CACHEBUST}" && git clone -b ${BRANCH} --single-branch --recursive ${REPO} .
 
+COPY llama-grammar.patch /tmp/llama-grammar.patch
+
 # build — dual backend: ROCm/HIP + CUDA
 RUN git clean -xdf \
   && git submodule update --recursive \
+  && patch -p1 < /tmp/llama-grammar.patch \
   && cmake -S . -B build \
   -DGGML_HIP=ON \
   -DGGML_CUDA=ON \
   -DGGML_BACKEND_DL=ON \
   -DGGML_NATIVE=OFF \
   -DGGML_CPU_ALL_VARIANTS=ON \
-  -DCMAKE_HIP_FLAGS="--rocm-path=/opt/rocm -mllvm --amdgpu-unroll-threshold-local=600" \
-  -DAMDGPU_TARGETS=gfx1151 \
+  -DAMDGPU_TARGETS="gfx1151;gfx1201" \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++-14 \
   -DCMAKE_CUDA_ARCHITECTURES=86 \
   -DCMAKE_CUDA_HOST_COMPILER=/usr/bin/g++-14 \
   -DCMAKE_BUILD_TYPE=Release \
@@ -78,7 +81,8 @@ RUN git clean -xdf \
   && cmake --install build --config Release
 
 # libs
-RUN find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/lib64/ \; \
+RUN mkdir -p /usr/local/lib64 \
+  && find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/local/lib64/ \; \
   && ldconfig
 
 # helper
@@ -87,19 +91,6 @@ RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
 
 # runtime stage
 FROM registry.fedoraproject.org/fedora-minimal:43
-
-# rocm 7.2 repo
-RUN <<'EOF'
-tee /etc/yum.repos.d/rocm.repo <<REPO
-[ROCm-7.2]
-name=ROCm7.2
-baseurl=https://repo.radeon.com/rocm/rhel10/7.2/main
-enabled=1
-priority=50
-gpgcheck=1
-gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
-REPO
-EOF
 
 # nvidia cuda repo (runtime libs only)
 RUN <<'EOF'
@@ -113,44 +104,68 @@ gpgkey=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64/
 REPO
 EOF
 
-# runtime deps: ROCm + CUDA runtime
+# rocm 7.2.4 repo (runtime libs)
+RUN <<'EOF'
+tee /etc/yum.repos.d/rocm.repo <<REPO
+[ROCm-7.2.4]
+name=ROCm7.2.4
+baseurl=https://repo.radeon.com/rocm/rhel10/7.2.4/main
+enabled=1
+priority=50
+gpgcheck=1
+gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
+REPO
+EOF
+
+# runtime deps: CUDA + ROCm runtime + system tools
 RUN microdnf -y --nodocs --setopt=install_weak_deps=0 \
   --exclude='*sdk*' --exclude='*samples*' --exclude='*-doc*' --exclude='*-docs*' \
   install \
-  bash ca-certificates libatomic libstdc++ libgcc libgomp sudo \
-  hip-runtime-amd rocblas hipblas \
-  rocminfo radeontop procps-ng \
+  bash ca-certificates libatomic libstdc++ libgcc libgomp libibverbs sudo \
+  radeontop procps-ng vim \
   cuda-cudart-13-1 libcublas-13-1 \
+  hip-runtime-amd rocblas hipblas rocminfo \
   && microdnf clean all && rm -rf /var/cache/dnf/*
 
-# copy
+# copy llama.cpp build artifacts
 COPY --from=builder /usr/local/ /usr/local/
-COPY --from=builder /opt/llama.cpp/build/bin/rpc-* /usr/local/bin/
+COPY --from=builder /opt/llama.cpp/build/bin/ggml-rpc-* /usr/local/bin/
 
-# ld — include CUDA lib path
-RUN echo "/usr/local/lib"  > /etc/ld.so.conf.d/local.conf \
-  && echo "/usr/local/lib64" >> /etc/ld.so.conf.d/local.conf \
+# ld — include CUDA + ROCm lib paths
+RUN echo "/usr/local/lib"       > /etc/ld.so.conf.d/local.conf \
+  && echo "/usr/local/lib64"     >> /etc/ld.so.conf.d/local.conf \
   && echo "/usr/local/cuda/lib64" >> /etc/ld.so.conf.d/local.conf \
+  && echo "/opt/rocm/lib"        >> /etc/ld.so.conf.d/local.conf \
+  && echo "/opt/rocm/lib64"      >> /etc/ld.so.conf.d/local.conf \
   && ldconfig \
   && cp -n /usr/local/lib/libllama*.so* /usr/lib64/ 2>/dev/null || true \
+  && cp -n /usr/local/lib64/libllama*.so* /usr/lib64/ 2>/dev/null || true \
   && ldconfig
 
 # env for runtime
 ENV CUDA_PATH=/usr/local/cuda \
-  HIP_VISIBLE_DEVICES=0 \
-  PATH=/usr/local/cuda/bin:/opt/rocm/bin:$PATH \
-  LD_LIBRARY_PATH=/usr/local/cuda/lib64
-
-# helper
-COPY gguf-vram-estimator.py /usr/local/bin/gguf-vram-estimator.py
-RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
+  ROCM_PATH=/opt/rocm \
+  HIP_PLATFORM=amd \
+  HIP_PATH=/opt/rocm \
+  HIP_CLANG_PATH=/opt/rocm/llvm/bin \
+  HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode \
+  HIP_VISIBLE_DEVICES=0,1 \
+  PATH=/usr/local/cuda/bin:/opt/rocm/bin:/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  LD_LIBRARY_PATH=/usr/local/cuda/lib64:/opt/rocm/lib:/opt/rocm/lib64:/opt/rocm/llvm/lib
 
 # ghostty shell integration (sourced from host .bashrc via GHOSTTY_RESOURCES_DIR)
 RUN mkdir -p /usr/share/ghostty/shell-integration/bash
 COPY shell-integration/bash/ /usr/share/ghostty/shell-integration/bash/
 
-# profile
+# profile — ROCm env for interactive shells
 RUN printf '%s\n' \
+  'export ROCM_PATH=/opt/rocm' \
+  'export HIP_PLATFORM=amd' \
+  'export HIP_PATH=/opt/rocm' \
+  'export HIP_CLANG_PATH=/opt/rocm/llvm/bin' \
+  'export HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode' \
+  'export PATH="$ROCM_PATH/bin:$HIP_CLANG_PATH:$PATH"' \
+  'export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/llvm/lib"' \
   > /etc/profile.d/rocm.sh && chmod +x /etc/profile.d/rocm.sh \
   && echo 'source /etc/profile.d/rocm.sh' >> /etc/bashrc
 

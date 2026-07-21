@@ -1,0 +1,90 @@
+FROM rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_2.10.0_ORT_1.23.2
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+ENV ROCM_PATH=/opt/rocm \
+  HIP_PATH=/opt/rocm \
+  HIP_PLATFORM=amd \
+  PATH=/opt/rocm/bin:/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib64:/opt/rocm/llvm/lib:/usr/local/lib:/usr/local/lib64
+
+RUN groupadd -r render || true \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    python3 \
+    build-essential \
+    cmake \
+    ninja-build \
+    git \
+    patch \
+    pkg-config \
+    libcurl4-openssl-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/llama.cpp
+
+ARG REPO=https://github.com/ggerganov/llama.cpp.git
+ARG BRANCH=master
+ARG CACHEBUST=1
+RUN echo "cache-bust: ${CACHEBUST}" \
+  && git clone -b "${BRANCH}" --single-branch --recursive "${REPO}" .
+
+COPY llama-grammar.patch /tmp/llama-grammar.patch
+
+RUN git clean -xdf \
+  && git submodule update --recursive \
+  && patch -p1 < /tmp/llama-grammar.patch \
+  && cmake -S . -B build \
+    -DGGML_HIP=ON \
+    -DGGML_BACKEND_DL=ON \
+    -DGGML_NATIVE=OFF \
+    -DGGML_CPU_ALL_VARIANTS=ON \
+    -DGGML_RPC=ON \
+    -DLLAMA_HIP_UMA=ON \
+    -DAMDGPU_TARGETS="gfx942;gfx1151;gfx1201" \
+    -DROCM_PATH=/opt/rocm \
+    -DHIP_PATH=/opt/rocm \
+    -DHIP_PLATFORM=amd \
+    -DCMAKE_BUILD_TYPE=Release \
+  && cmake --build build --config Release -- -j"$(nproc)" \
+  && cmake --install build --config Release
+
+RUN mkdir -p /usr/local/lib64 \
+  && find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp -n {} /usr/local/lib64/ \; \
+  && printf '%s\n' \
+    '/usr/local/lib' \
+    '/usr/local/lib64' \
+    '/opt/rocm/lib' \
+    '/opt/rocm/lib64' \
+    '/opt/rocm/llvm/lib' \
+    > /etc/ld.so.conf.d/local.conf \
+  && ldconfig
+
+COPY gguf-vram-estimator.py /usr/local/bin/gguf-vram-estimator.py
+
+RUN chmod +x /usr/local/bin/gguf-vram-estimator.py \
+  && printf '%s\n' \
+    'export ROCM_PATH=/opt/rocm' \
+    'export HIP_PATH=/opt/rocm' \
+    'export HIP_PLATFORM=amd' \
+    'export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:$PATH"' \
+    'export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/llvm/lib:/usr/local/lib:/usr/local/lib64"' \
+    > /etc/profile.d/rocm.sh \
+  && chmod +x /etc/profile.d/rocm.sh
+
+RUN apt-get update \
+  && apt-get purge -y \
+    build-essential \
+    cmake \
+    ninja-build \
+    git \
+    patch \
+    pkg-config \
+    libcurl4-openssl-dev \
+  && apt-get autoremove -y \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+CMD ["/bin/bash"]
