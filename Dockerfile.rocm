@@ -31,11 +31,8 @@ ARG CACHEBUST=1
 RUN echo "cache-bust: ${CACHEBUST}" \
   && git clone -b "${BRANCH}" --single-branch --recursive "${REPO}" .
 
-COPY llama-grammar.patch /tmp/llama-grammar.patch
-
 RUN git clean -xdf \
   && git submodule update --recursive \
-  && patch -p1 < /tmp/llama-grammar.patch \
   && cmake -S . -B build \
     -DGGML_HIP=ON \
     -DGGML_BACKEND_DL=ON \

@@ -2,29 +2,25 @@
 FROM registry.fedoraproject.org/fedora:42 AS builder
 
 # nvidia cuda repo (fedora42)
-RUN <<'EOF'
-tee /etc/yum.repos.d/cuda-fedora42.repo <<REPO
-[cuda-fedora42-x86_64]
-name=cuda-fedora42-x86_64
-baseurl=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64
-enabled=1
-gpgcheck=1
-gpgkey=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64/D42D0685.pub
-REPO
-EOF
+RUN printf '%s\n' \
+  '[cuda-fedora42-x86_64]' \
+  'name=cuda-fedora42-x86_64' \
+  'baseurl=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64' \
+  'enabled=1' \
+  'gpgcheck=1' \
+  'gpgkey=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64/D42D0685.pub' \
+  > /etc/yum.repos.d/cuda-fedora42.repo
 
 # rocm 7.2.4 repo (stable, RPM-based — replaces nightly tarballs)
-RUN <<'EOF'
-tee /etc/yum.repos.d/rocm.repo <<REPO
-[ROCm-7.2.4]
-name=ROCm7.2.4
-baseurl=https://repo.radeon.com/rocm/rhel9/7.2.4/main
-enabled=1
-priority=50
-gpgcheck=1
-gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
-REPO
-EOF
+RUN printf '%s\n' \
+  '[ROCm-7.2.4]' \
+  'name=ROCm7.2.4' \
+  'baseurl=https://repo.radeon.com/rocm/rhel9/7.2.4/main' \
+  'enabled=1' \
+  'priority=50' \
+  'gpgcheck=1' \
+  'gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key' \
+  > /etc/yum.repos.d/rocm.repo
 
 # deps: build tools + CUDA + ROCm
 RUN dnf -y --nodocs --setopt=install_weak_deps=False \
@@ -54,12 +50,9 @@ ARG BRANCH=master
 ARG CACHEBUST=1
 RUN echo "cache-bust: ${CACHEBUST}" && git clone -b ${BRANCH} --single-branch --recursive ${REPO} .
 
-COPY llama-grammar.patch /tmp/llama-grammar.patch
-
 # build — dual backend: ROCm/HIP + CUDA
 RUN git clean -xdf \
   && git submodule update --recursive \
-  && patch -p1 < /tmp/llama-grammar.patch \
   && cmake -S . -B build \
   -DGGML_HIP=ON \
   -DGGML_CUDA=ON \
@@ -93,29 +86,25 @@ RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
 FROM registry.fedoraproject.org/fedora-minimal:43
 
 # nvidia cuda repo (runtime libs only)
-RUN <<'EOF'
-tee /etc/yum.repos.d/cuda-fedora42.repo <<REPO
-[cuda-fedora42-x86_64]
-name=cuda-fedora42-x86_64
-baseurl=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64
-enabled=1
-gpgcheck=1
-gpgkey=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64/D42D0685.pub
-REPO
-EOF
+RUN printf '%s\n' \
+  '[cuda-fedora42-x86_64]' \
+  'name=cuda-fedora42-x86_64' \
+  'baseurl=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64' \
+  'enabled=1' \
+  'gpgcheck=1' \
+  'gpgkey=https://developer.download.nvidia.com/compute/cuda/repos/fedora42/x86_64/D42D0685.pub' \
+  > /etc/yum.repos.d/cuda-fedora42.repo
 
 # rocm 7.2.4 repo (runtime libs)
-RUN <<'EOF'
-tee /etc/yum.repos.d/rocm.repo <<REPO
-[ROCm-7.2.4]
-name=ROCm7.2.4
-baseurl=https://repo.radeon.com/rocm/rhel10/7.2.4/main
-enabled=1
-priority=50
-gpgcheck=1
-gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
-REPO
-EOF
+RUN printf '%s\n' \
+  '[ROCm-7.2.4]' \
+  'name=ROCm7.2.4' \
+  'baseurl=https://repo.radeon.com/rocm/rhel10/7.2.4/main' \
+  'enabled=1' \
+  'priority=50' \
+  'gpgcheck=1' \
+  'gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key' \
+  > /etc/yum.repos.d/rocm.repo
 
 # runtime deps: CUDA + ROCm runtime + system tools
 RUN microdnf -y --nodocs --setopt=install_weak_deps=0 \
