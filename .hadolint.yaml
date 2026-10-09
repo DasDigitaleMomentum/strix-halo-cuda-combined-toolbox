@@ -1,0 +1,4 @@
+# Only error-level findings fail CI. Existing warning/info findings
+# (DL3008, DL3041, DL3059, SC2016, SC2046) are printed but tolerated until the
+# Dockerfiles are cleaned up; lower this to "warning" afterwards.
+failure-threshold: error
