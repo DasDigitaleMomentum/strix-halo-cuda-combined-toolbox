@@ -4,3 +4,6 @@
 # Python bytecode and local ruff cache.
 __pycache__/
 .ruff_cache/
+
+# Private working artifacts (agent plans, reviews, session notes); keep local only
+/plans/
