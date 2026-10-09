@@ -195,3 +195,7 @@ The container includes [Ghostty's](https://ghostty.org/) bash shell integration 
 MIT -- see [LICENSE](LICENSE).
 
 The Ghostty shell integration files in `shell-integration/` are from the [Ghostty project](https://github.com/ghostty-org/ghostty) and licensed under **GPLv3**.
+
+---
+
+Maintained by [Das Digitale Momentum](https://www.das-digitale-momentum.de/en/open-source/#strix-halo-cuda-combined-toolbox) · Much, Germany · [All our open source projects](https://github.com/DasDigitaleMomentum)
