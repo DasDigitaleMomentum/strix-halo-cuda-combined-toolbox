@@ -1,0 +1,6 @@
+# Model files passed to gguf-vram-estimator.py / llama.cpp (multi-GB).
+*.gguf
+
+# Python bytecode and local ruff cache.
+__pycache__/
+.ruff_cache/
