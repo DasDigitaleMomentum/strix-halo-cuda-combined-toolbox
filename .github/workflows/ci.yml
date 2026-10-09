@@ -72,3 +72,21 @@ jobs:
       - name: ruff (gguf-vram-estimator.py)
         # Rule selection is set in ruff.toml.
         run: uvx "ruff@${RUFF_VERSION}" check --output-format=github gguf-vram-estimator.py
+
+  ci:
+    # Single required status check, enforced by the org ruleset
+    # "public-default-branch". Add every job of this workflow to `needs`.
+    name: ci
+    if: always()
+    needs: [lint]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless all jobs succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Job results: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = "success" ] || exit 1
+          done
